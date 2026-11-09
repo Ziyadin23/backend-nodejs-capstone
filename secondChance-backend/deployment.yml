@@ -1,0 +1,57 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: secondchanceapp
+  labels:
+    app: secondchanceapp
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: secondchanceapp
+  template:
+    metadata:
+      labels:
+        app: secondchanceapp
+    spec:
+      securityContext:
+        seccompProfile:
+          type: RuntimeDefault
+      imagePullSecrets:
+        - name: icr
+      containers:
+        - name: secondchanceapp-container
+          image: us.icr.io/REPLACE_WITH_NAMESPACE/secondchanceapp:latest
+          ports:
+            - containerPort: 3060
+          env:
+            - name: MONGO_URL
+              value: mongodb://mongodb-service:27017
+            - name: MONGO_DB
+              value: secondChance
+            - name: MONGO_COLLECTION
+              value: secondChanceItems
+            - name: JWT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: secondchance-secrets
+                  key: JWT_SECRET
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 1000
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: [ALL]
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: secondchance-app-service
+spec:
+  type: ClusterIP
+  ports:
+    - port: 80
+      targetPort: 3060
+      protocol: TCP
+  selector:
+    app: secondchanceapp

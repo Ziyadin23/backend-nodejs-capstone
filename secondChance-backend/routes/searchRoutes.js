@@ -1,42 +1,36 @@
-const express = require('express');
-const router = express.Router();
-const connectToDatabase = require('../models/db');
+const express = require('express')
+const connectToDatabase = require('../models/db')
+const router = express.Router()
 
-// Search for gifts
 router.get('/', async (req, res, next) => {
-    try {
-        // Task 1: Connect to MongoDB using connectToDatabase database. Remember to use the await keyword and store the connection in `db`
-        // {{insert code here}}
-
-        const collection = db.collection("gifts");
-
-        // Initialize the query object
-        let query = {};
-
-        // Add the name filter to the query if the name parameter is not empty
-        // if (/* {{insert code here}} */) {
-            query.name = { $regex: req.query.name, $options: "i" }; // Using regex for partial match, case-insensitive
-        // }
-
-        // Task 3: Add other filters to the query
-        if (req.query.category) {
-            // {{insert code here}}
+  try {
+    const query = {}
+    for (const field of ['name', 'category', 'condition', 'age_years']) {
+      const value = req.query[field]
+      if (value === undefined) continue
+      if (typeof value !== 'string' || value.length > 200) {
+        return res.status(400).json({ error: `Invalid ${field} filter` })
+      }
+      const text = value.trim()
+      if (!text) continue
+      if (field === 'name') {
+        query.name = { $regex: text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), $options: 'i' }
+      } else if (field === 'age_years') {
+        const age = Number(text)
+        if (!Number.isFinite(age) || age < 0) {
+          return res.status(400).json({ error: 'age_years must be a nonnegative number' })
         }
-        if (req.query.condition) {
-            // {{insert code here}} 
-        }
-        if (req.query.age_years) {
-            // {{insert code here}}
-            query.age_years = { $lte: parseInt(req.query.age_years) };
-        }
-
-        // Task 4: Fetch filtered gifts using the find(query) method. Make sure to use await and store the result in the `gifts` constant
-        // {{insert code here here}}
-
-        res.json(gifts);
-    } catch (e) {
-        next(e);
+        query.age_years = { $lte: age }
+      } else {
+        query[field] = text
+      }
     }
-});
+    const db = await connectToDatabase()
+    const collection = db.collection(process.env.MONGO_COLLECTION || 'secondChanceItems')
+    res.json(await collection.find(query).toArray())
+  } catch (error) {
+    next(error)
+  }
+})
 
-module.exports = router;
+module.exports = router

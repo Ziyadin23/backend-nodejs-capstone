@@ -1,0 +1,90 @@
+name: CI/CD
+
+on:
+  push:
+    branches: [main, master, 'codex/**']
+  pull_request:
+    branches: [main, master]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  lint-test-build:
+    name: Lint, test, and build
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    services:
+      mongodb:
+        image: mongo:6.0
+        ports:
+          - 27017:27017
+        options: >-
+          --health-cmd "mongosh --quiet --eval 'db.adminCommand({ ping: 1 })'"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      MONGO_URL: mongodb://127.0.0.1:27017
+      MONGO_DB: secondChance_ci
+      MONGO_COLLECTION: secondChanceItems
+      REACT_APP_BACKEND_URL: http://127.0.0.1:3060
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Create an ephemeral test signing key
+        run: echo "JWT_SECRET=$(openssl rand -hex 32)" >> "$GITHUB_ENV"
+
+      - name: Install ESLint and Standard configuration
+        run: |
+          npm init -y
+          npm install --no-save --package-lock=false eslint@8.57.1 eslint-config-standard@17.1.0 eslint-plugin-import@2.31.0 eslint-plugin-n@16.6.2 eslint-plugin-promise@6.6.0
+
+      - name: Lint service JavaScript
+        run: ./node_modules/.bin/eslint --env node,mocha --max-warnings 0 secondChance-backend sentiment secondchancewebsite .eslintrc.js
+
+      - name: Install backend dependencies
+        working-directory: secondChance-backend
+        run: npm ci --no-audit --no-fund
+
+      - name: Test backend against MongoDB
+        working-directory: secondChance-backend
+        run: npm test
+
+      - name: Verify the running application API
+        run: node scripts/app-smoke.cjs
+
+      - name: Install sentiment dependencies
+        working-directory: sentiment
+        run: npm ci --no-audit --no-fund
+
+      - name: Test sentiment service
+        working-directory: sentiment
+        run: npm test
+
+      - name: Install frontend dependencies
+        working-directory: secondChance-frontend
+        run: npm ci --no-audit --no-fund
+
+      - name: Build frontend and copy website assets
+        working-directory: secondChance-frontend
+        run: npm run build
+
+      - name: Test frontend navigation
+        working-directory: secondChance-frontend
+        run: CI=true npm test -- --watchAll=false --runInBand
+
+      - name: Install website dependencies
+        working-directory: secondchancewebsite
+        run: npm ci --no-audit --no-fund
+
+      - name: Check website server syntax
+        working-directory: secondchancewebsite
+        run: node --check index.js
